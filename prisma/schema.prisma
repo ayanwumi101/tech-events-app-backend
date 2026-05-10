@@ -1,0 +1,211 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  id                  String             @id @default(cuid())
+  fullName            String
+  email               String             @unique
+  passwordHash        String
+  country             String
+  role                String
+  emailVerified       Boolean            @default(false)
+  onboardingCompleted Boolean            @default(false)
+  themeMode           ThemeMode          @default(DARK)
+  lastLoginAt         DateTime?
+  createdAt           DateTime           @default(now())
+  updatedAt           DateTime           @updatedAt
+  attendance          Attendance[]
+  favorites           Favorite[]
+  feedbacks           Feedback[]
+  notifications       Notification[]
+  pushTokens          PushToken[]
+  refreshTokens       RefreshToken[]
+  verificationCodes   VerificationCode[]
+}
+
+model VerificationCode {
+  id         String    @id @default(cuid())
+  userId     String
+  code       String
+  expiresAt  DateTime
+  consumedAt DateTime?
+  createdAt  DateTime  @default(now())
+  user       User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, code])
+  @@index([expiresAt])
+}
+
+model RefreshToken {
+  id        String    @id
+  userId    String
+  tokenHash String
+  expiresAt DateTime
+  revokedAt DateTime?
+  createdAt DateTime  @default(now())
+  user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([expiresAt])
+}
+
+model Event {
+  id               String          @id
+  title            String
+  summary          String
+  description      String
+  category         EventCategory
+  sourceType       EventSourceType
+  sourceName       String
+  sourceUrl        String
+  registrationUrl  String
+  location         String
+  venue            String
+  city             String
+  country          String
+  startDate        DateTime
+  endDate          DateTime
+  imageUrl         String
+  tags             Json
+  priceLabel       String
+  attendeeEstimate Int
+  aiConfidence     Float
+  aiSummary        String
+  ingestedAt       DateTime
+  createdAt        DateTime        @default(now())
+  updatedAt        DateTime        @updatedAt
+  attendance       Attendance[]
+  favorites        Favorite[]
+  feedbacks        Feedback[]
+  notifications    Notification[]
+
+  @@index([startDate])
+  @@index([category])
+}
+
+model Favorite {
+  userId    String
+  eventId   String
+  createdAt DateTime @default(now())
+  event     Event    @relation(fields: [eventId], references: [id], onDelete: Cascade)
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@id([userId, eventId])
+}
+
+model Attendance {
+  userId    String
+  eventId   String
+  status    AttendanceStatus
+  decidedAt DateTime         @default(now())
+  event     Event            @relation(fields: [eventId], references: [id], onDelete: Cascade)
+  user      User             @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@id([userId, eventId])
+  @@index([decidedAt])
+}
+
+model Feedback {
+  id        String   @id @default(cuid())
+  userId    String
+  eventId   String
+  title     String
+  rating    Int
+  message   String
+  images    Json
+  createdAt DateTime @default(now())
+  event     Event    @relation(fields: [eventId], references: [id], onDelete: Cascade)
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, eventId])
+}
+
+model Notification {
+  id        String    @id @default(cuid())
+  userId    String
+  title     String
+  message   String
+  eventId   String?
+  readAt    DateTime?
+  createdAt DateTime  @default(now())
+  event     Event?    @relation(fields: [eventId], references: [id])
+  user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, readAt, createdAt])
+}
+
+model PushToken {
+  id        String   @id @default(cuid())
+  userId    String
+  token     String   @unique
+  platform  String
+  createdAt DateTime @default(now())
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+}
+
+model IngestionRun {
+  id          String          @id @default(cuid())
+  status      IngestionStatus
+  startedAt   DateTime        @default(now())
+  endedAt     DateTime?
+  discovered  Int             @default(0)
+  updated     Int             @default(0)
+  provider    String
+  sourceCount Int             @default(0)
+  message     String?
+
+  @@index([startedAt])
+}
+
+model AiSource {
+  id            String          @id @default(cuid())
+  name          String
+  type          EventSourceType
+  url           String
+  isActive      Boolean         @default(true)
+  lastFetchedAt DateTime?
+  createdAt     DateTime        @default(now())
+  updatedAt     DateTime        @updatedAt
+}
+
+enum ThemeMode {
+  LIGHT
+  DARK
+}
+
+enum AttendanceStatus {
+  GOING
+  NOT_GOING
+}
+
+enum EventSourceType {
+  SOCIAL_MEDIA
+  WEBSITE
+  NEWSLETTER
+  COMMUNITY
+}
+
+enum EventCategory {
+  AI
+  CLOUD
+  SECURITY
+  FRONTEND
+  MOBILE
+  DATA
+  DEVOPS
+  COMMUNITY
+}
+
+enum IngestionStatus {
+  RUNNING
+  COMPLETED
+  FAILED
+}
