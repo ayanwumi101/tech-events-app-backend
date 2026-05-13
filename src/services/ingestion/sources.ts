@@ -19,9 +19,44 @@ const isoInDays = (days: number, hours: number, minutes: number): string => {
 
 export const defaultAiSources: DefaultAiSource[] = [
   {
-    name: "Google I/O and Developer Events",
+    name: "Eventbrite Tech Events",
+    type: "WEBSITE",
+    url: "https://www.eventbrite.com/d/online/technology--events/",
+  },
+  {
+    name: "Meetup Technology Events",
+    type: "COMMUNITY",
+    url: "https://www.meetup.com/find/?keywords=technology",
+  },
+  {
+    name: "Luma Discover",
+    type: "COMMUNITY",
+    url: "https://lu.ma/discover",
+  },
+  {
+    name: "Google Developers Events",
     type: "WEBSITE",
     url: "https://developers.google.com/events",
+  },
+  {
+    name: "Google Developers Blog RSS",
+    type: "NEWSLETTER",
+    url: "https://blog.google/rss/",
+  },
+  {
+    name: "GitHub Engineering Blog RSS",
+    type: "NEWSLETTER",
+    url: "https://github.blog/feed/",
+  },
+  {
+    name: "Dev.to Events Tag",
+    type: "NEWSLETTER",
+    url: "https://dev.to/t/events",
+  },
+  {
+    name: "Hashnode Engineering",
+    type: "NEWSLETTER",
+    url: "https://engineering.hashnode.com/",
   },
   {
     name: "Google Developers Blog",
@@ -39,34 +74,14 @@ export const defaultAiSources: DefaultAiSource[] = [
     url: "https://developer.microsoft.com/en-us/reactor/events/",
   },
   {
-    name: "TechCrunch Startups",
-    type: "NEWSLETTER",
-    url: "https://techcrunch.com/startups/",
-  },
-  {
-    name: "Dev.to Events Feed",
-    type: "COMMUNITY",
-    url: "https://dev.to/t/events",
-  },
-  {
     name: "Devpost Hackathons",
     type: "WEBSITE",
     url: "https://devpost.com/hackathons",
   },
   {
-    name: "Eventbrite Technology Events",
-    type: "WEBSITE",
-    url: "https://www.eventbrite.com/d/online/technology--events/",
-  },
-  {
-    name: "Meetup Tech Discover",
-    type: "COMMUNITY",
-    url: "https://www.meetup.com/find/?keywords=technology",
-  },
-  {
-    name: "LinkedIn Tech Feed",
+    name: "LinkedIn Events",
     type: "SOCIAL_MEDIA",
-    url: "https://www.linkedin.com/feed/hashtag/technology",
+    url: "https://www.linkedin.com/events/",
   },
   {
     name: "X Tech Meetup Search",

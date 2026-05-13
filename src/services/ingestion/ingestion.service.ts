@@ -10,12 +10,14 @@ import { prisma } from "../../lib/prisma.js";
 import { createNotificationForManyUsers } from "../notification.service.js";
 import { uploadImageToCloudinary } from "../cloudinary.service.js";
 import { EventCandidate } from "../../types/event.js";
+import { collectExternalSourceSnippets } from "./discovery.service.js";
 import { extractEventsFromSnippets } from "./extractor.js";
 import {
   defaultAiSources,
   fallbackSourceSnippets,
 } from "./sources.js";
 import { scrapeSourcesForSnippets } from "./scraper.js";
+import { validateEventCandidates } from "./validation.service.js";
 
 interface IngestionSummary {
   runId: string;
@@ -41,6 +43,30 @@ const toSafeDate = (input: string, fallback: Date): Date => {
     return fallback;
   }
   return candidate;
+};
+
+const dedupeSnippets = <
+  TSnippet extends {
+    sourceName: string;
+    registrationUrl: string;
+    rawText: string;
+  },
+>(
+  snippets: TSnippet[],
+): TSnippet[] => {
+  const seen = new Set<string>();
+  const deduped: TSnippet[] = [];
+
+  for (const snippet of snippets) {
+    const key = `${snippet.sourceName}:${snippet.registrationUrl}:${snippet.rawText.slice(0, 180)}`;
+    if (seen.has(key)) {
+      continue;
+    }
+    seen.add(key);
+    deduped.push(snippet);
+  }
+
+  return deduped;
 };
 
 const upsertEvent = async (event: EventCandidate): Promise<"created" | "updated"> => {
@@ -152,8 +178,11 @@ const buildSnippets = async () => {
     })),
   );
 
-  if (scraped.length > 0) {
-    return scraped.slice(0, 40);
+  const external = await collectExternalSourceSnippets();
+  const merged = dedupeSnippets([...external, ...scraped]);
+
+  if (merged.length > 0) {
+    return merged.slice(0, 80);
   }
 
   return dbSources.map((source, index) => {
@@ -227,12 +256,13 @@ export const runIngestionScan = async (): Promise<IngestionSummary> => {
   try {
     const snippets = await buildSnippets();
     const extracted = await extractEventsFromSnippets(snippets);
+    const validated = await validateEventCandidates(extracted);
 
     let discovered = 0;
     let updated = 0;
     const discoveredIds: string[] = [];
 
-    for (const event of extracted) {
+    for (const event of validated) {
       const result = await upsertEvent(event);
       if (result === "created") {
         discovered += 1;
