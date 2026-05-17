@@ -42,6 +42,15 @@ const EVENT_TERMS = [
   "opportunity",
 ];
 
+const LISTING_TITLE_PATTERNS = [
+  "events calendar",
+  "discover ",
+  "find ",
+  "all events",
+  "events & activities",
+  "technology events",
+];
+
 const normalizeText = (value: string): string => {
   return value.toLowerCase().replace(/\s+/g, " ").trim();
 };
@@ -80,6 +89,48 @@ const canonicalUrl = (value: string): string => {
   }
 };
 
+const isLikelyListingOrDirectory = (candidate: EventCandidate): boolean => {
+  const title = normalizeText(candidate.title);
+  const sourceUrl = safeUrl(candidate.sourceUrl) ?? "";
+  const registrationUrl = safeUrl(candidate.registrationUrl) ?? "";
+
+  if (LISTING_TITLE_PATTERNS.some((pattern) => title.includes(pattern))) {
+    return true;
+  }
+
+  if (registrationUrl.includes("lu.ma/") && registrationUrl.includes("?k=c")) {
+    return true;
+  }
+
+  if (
+    registrationUrl.includes("eventbrite.com/d/") ||
+    registrationUrl.includes("meetup.com/find/")
+  ) {
+    return true;
+  }
+
+  if (registrationUrl === sourceUrl) {
+    const path = (() => {
+      try {
+        return new URL(registrationUrl).pathname.toLowerCase();
+      } catch {
+        return "";
+      }
+    })();
+
+    if (
+      path === "/" ||
+      path.includes("/discover") ||
+      path.includes("/calendar") ||
+      path.includes("/events/")
+    ) {
+      return true;
+    }
+  }
+
+  return false;
+};
+
 const normalizeTitle = (value: string): string => {
   return normalizeText(value).replace(/[^a-z0-9 ]+/g, "");
 };
@@ -101,6 +152,10 @@ const passesRuleValidation = (candidate: EventCandidate): boolean => {
   }
 
   if (!safeUrl(candidate.sourceUrl) || !safeUrl(candidate.registrationUrl)) {
+    return false;
+  }
+
+  if (isLikelyListingOrDirectory(candidate)) {
     return false;
   }
 
@@ -352,4 +407,3 @@ export const validateEventCandidates = async (
 
   return alignToExistingEventIds(aiFiltered);
 };
-

@@ -46,6 +46,8 @@ Backend base URL: `http://localhost:4000/api/v1`
 - `POST /auth/signup`
 - `POST /auth/resend-otp`
 - `POST /auth/verify-email`
+- `POST /auth/forgot-password/request-otp`
+- `POST /auth/forgot-password/reset`
 - `POST /auth/signin`
 - `POST /auth/refresh`
 - `POST /auth/logout`

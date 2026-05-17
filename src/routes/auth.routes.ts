@@ -13,7 +13,10 @@ import { hashPassword, verifyPassword } from "../lib/password.js";
 import { prisma } from "../lib/prisma.js";
 import { parseOrReply } from "../lib/request-validation.js";
 import { serializeUser } from "../lib/serializers.js";
-import { sendOtpEmail } from "../services/email.service.js";
+import {
+  sendOtpEmail,
+  sendPasswordResetOtpEmail,
+} from "../services/email.service.js";
 
 const signUpSchema = z.object({
   fullName: z.string().min(2),
@@ -35,6 +38,12 @@ const emailSchema = z.object({
 const verifyOtpSchema = z.object({
   email: z.string().email(),
   otp: z.string().length(6),
+});
+
+const forgotPasswordResetSchema = z.object({
+  email: z.string().email(),
+  otp: z.string().length(6),
+  newPassword: z.string().min(6),
 });
 
 const refreshSchema = z.object({
@@ -276,6 +285,132 @@ export const registerAuthRoutes = async (app: FastifyInstance) => {
       message: "Email verified successfully.",
       user: serializeUser(refreshedUser),
       session,
+    });
+  });
+
+  app.post("/auth/forgot-password/request-otp", async (request, reply) => {
+    const payload = parseOrReply(emailSchema, request.body, reply);
+    if (!payload) {
+      return;
+    }
+
+    const normalizedEmail = payload.email.toLowerCase().trim();
+    const user = await prisma.user.findUnique({
+      where: { email: normalizedEmail },
+      select: {
+        id: true,
+        email: true,
+        fullName: true,
+        emailVerified: true,
+      },
+    });
+
+    if (!user || !user.emailVerified) {
+      return reply.send({
+        ok: true,
+        message:
+          "If an account exists for this email, a password reset code has been sent.",
+      });
+    }
+
+    await prisma.verificationCode.deleteMany({
+      where: {
+        userId: user.id,
+        consumedAt: null,
+      },
+    });
+
+    const verification = await createVerificationCode(user.id);
+    const emailDelivery = await sendPasswordResetOtpEmail({
+      toEmail: user.email,
+      fullName: user.fullName,
+      otp: verification.otp,
+      expiresInMinutes: env.OTP_EXPIRY_MINUTES,
+    });
+
+    return reply.send({
+      ok: true,
+      message:
+        "If an account exists for this email, a password reset code has been sent.",
+      expiresAt: verification.expiresAt.toISOString(),
+      emailSent: emailDelivery.sent,
+      emailReason: emailDelivery.reason,
+      devOtpPreview:
+        env.NODE_ENV === "production" && emailDelivery.sent
+          ? undefined
+          : verification.otp,
+    });
+  });
+
+  app.post("/auth/forgot-password/reset", async (request, reply) => {
+    const payload = parseOrReply(forgotPasswordResetSchema, request.body, reply);
+    if (!payload) {
+      return;
+    }
+
+    const normalizedEmail = payload.email.toLowerCase().trim();
+    const user = await prisma.user.findUnique({
+      where: { email: normalizedEmail },
+      select: {
+        id: true,
+        emailVerified: true,
+      },
+    });
+
+    if (!user || !user.emailVerified) {
+      return reply.status(400).send({
+        ok: false,
+        message: "Invalid or expired reset OTP.",
+      });
+    }
+
+    const code = await prisma.verificationCode.findFirst({
+      where: {
+        userId: user.id,
+        code: payload.otp.trim(),
+        consumedAt: null,
+        expiresAt: {
+          gt: new Date(),
+        },
+      },
+      orderBy: {
+        createdAt: "desc",
+      },
+    });
+
+    if (!code) {
+      return reply.status(400).send({
+        ok: false,
+        message: "Invalid or expired reset OTP.",
+      });
+    }
+
+    const passwordHash = await hashPassword(payload.newPassword);
+
+    await prisma.$transaction([
+      prisma.verificationCode.update({
+        where: { id: code.id },
+        data: { consumedAt: new Date() },
+      }),
+      prisma.user.update({
+        where: { id: user.id },
+        data: { passwordHash },
+      }),
+      prisma.refreshToken.updateMany({
+        where: {
+          userId: user.id,
+          revokedAt: null,
+        },
+        data: {
+          revokedAt: new Date(),
+        },
+      }),
+    ]);
+
+    return reply.send({
+      ok: true,
+      message:
+        "Password reset successful. Please sign in with your new password.",
     });
   });
 

@@ -143,6 +143,55 @@ export const registerEventRoutes = async (app: FastifyInstance) => {
     });
   });
 
+  app.get("/events/favorites", async (request, reply) => {
+    const user = await requireAuthUser(request, reply);
+    if (!user) {
+      return;
+    }
+
+    const favorites = await prisma.favorite.findMany({
+      where: { userId: user.id },
+      include: {
+        event: true,
+      },
+      orderBy: {
+        createdAt: "desc",
+      },
+    });
+
+    const eventIds = favorites.map((item) => item.eventId);
+    const attendanceRecords = await prisma.attendance.findMany({
+      where: {
+        userId: user.id,
+        eventId: {
+          in: eventIds,
+        },
+      },
+      select: {
+        eventId: true,
+        status: true,
+      },
+    });
+
+    const attendanceMap = new Map(
+      attendanceRecords.map((item) => [item.eventId, item.status]),
+    );
+
+    return reply.send({
+      ok: true,
+      items: favorites.map((favorite) =>
+        serializeEvent(favorite.event, {
+          isFavorite: true,
+          attendance: attendanceMap.has(favorite.eventId)
+            ? ({
+                status: attendanceMap.get(favorite.eventId)!,
+              } as { status: AttendanceStatus })
+            : null,
+        }),
+      ),
+    });
+  });
+
   app.get("/events/:id", async (request, reply) => {
     const { id } = request.params as { id: string };
     const authUser = await getOptionalAuthUser(request);
