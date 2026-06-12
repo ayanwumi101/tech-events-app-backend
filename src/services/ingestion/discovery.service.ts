@@ -18,25 +18,17 @@ interface ScrapeSourceConfig {
   url: string;
 }
 
-const DEFAULT_HASHNODE_HOSTS = [
-  "engineering.hashnode.com",
-  "blog.developerdao.com",
-];
+// Hashnode publication hosts are opt-in via HASHNODE_PUBLICATION_HOSTS env var.
+// Do not default to tech blogs — only query hosts that publish event listings.
+const DEFAULT_HASHNODE_HOSTS: string[] = [];
 
-const DEFAULT_RSS_FEEDS = [
-  "https://blog.google/rss/",
-  "https://github.blog/feed/",
-  "https://developer.mozilla.org/en-US/blog/rss.xml",
-  "https://aws.amazon.com/blogs/devops/feed/",
-];
+// RSS feeds must point to event-listing feeds, not general tech blogs.
+// Provide a curated list only when users explicitly configure RSS_SOURCE_FEEDS.
+const DEFAULT_RSS_FEEDS: string[] = [];
 
 const LUMA_SEED_URLS = [
   "https://lu.ma/discover",
   "https://lu.ma/calendar",
-];
-
-const LINKEDIN_EVENT_SEED_URLS = [
-  "https://www.linkedin.com/events/",
 ];
 
 const TECH_TERMS = [
@@ -70,8 +62,8 @@ const EVENT_TERMS = [
 
 const SEARCH_QUERIES = [
   "site:lu.ma (tech OR developer) (event OR meetup OR workshop)",
-  "site:linkedin.com/events (tech OR software) (conference OR meetup OR workshop)",
-  "(tech OR software) (event OR meetup OR conference) (eventbrite OR meetup OR lu.ma)",
+  "(tech OR software) (event OR meetup OR conference) (eventbrite OR lu.ma OR devpost)",
+  "(hackathon OR conference OR summit) (developer OR software OR AI) 2025 OR 2026",
 ];
 
 const safeUrl = (value: string | null | undefined): string | null => {
@@ -287,65 +279,8 @@ const collectEventbriteSnippets = async (): Promise<SourceSnippet[]> => {
   );
 };
 
-const collectMeetupSnippets = async (): Promise<SourceSnippet[]> => {
-  if (!env.MEETUP_API_KEY) {
-    return [];
-  }
-
-  interface MeetupResponse {
-    events?: Array<{
-      name?: string;
-      description?: string;
-      local_date?: string;
-      local_time?: string;
-      link?: string;
-      venue?: {
-        city?: string;
-        country?: string;
-        name?: string;
-      };
-      group?: {
-        name?: string;
-      };
-    }>;
-  }
-
-  const url = new URL("https://api.meetup.com/find/upcoming_events");
-  url.searchParams.set("key", env.MEETUP_API_KEY);
-  url.searchParams.set("text", "tech");
-  url.searchParams.set("page", "60");
-  url.searchParams.set("topic_category", "292");
-
-  const data = await fetchJson<MeetupResponse>(url.toString());
-  if (!data?.events?.length) {
-    return [];
-  }
-
-  return dedupeSnippets(
-    data.events
-      .map((item) =>
-        buildSnippet({
-          title: item.name ?? "",
-          summary: item.description ?? "",
-          sourceName: item.group?.name
-            ? `Meetup API • ${item.group.name}`
-            : "Meetup API",
-          sourceType: "COMMUNITY",
-          sourceUrl: item.link ?? "",
-          registrationUrl: item.link ?? "",
-          startDate:
-            item.local_date && item.local_time
-              ? `${item.local_date}T${item.local_time}`
-              : item.local_date ?? undefined,
-          city: item.venue?.city ?? undefined,
-          country: item.venue?.country ?? undefined,
-          venue: item.venue?.name ?? undefined,
-        }),
-      )
-      .filter((item): item is SourceSnippet => item !== null),
-  );
-};
-
+// Dev.to publishes event announcements under event-specific tags.
+// Only fetch tags that are explicitly about events, not general tech content.
 const collectDevToSnippets = async (): Promise<SourceSnippet[]> => {
   interface DevToArticle {
     title: string;
@@ -359,11 +294,11 @@ const collectDevToSnippets = async (): Promise<SourceSnippet[]> => {
     };
   }
 
-  const tags = ["events", "webdev", "devops", "ai"];
+  const tags = ["events", "conference", "hackathon", "meetup"];
   const batches = await Promise.all(
     tags.map((tag) =>
       fetchJson<DevToArticle[]>(
-        `https://dev.to/api/articles?tag=${encodeURIComponent(tag)}&per_page=25`,
+        `https://dev.to/api/articles?tag=${encodeURIComponent(tag)}&per_page=20`,
       ),
     ),
   );
@@ -742,7 +677,7 @@ const mapSearchResultsToScrapeSources = (results: SearchResult[]): ScrapeSourceC
       continue;
     }
 
-    if (sourceUrl.includes("lu.ma") || sourceUrl.includes("linkedin.com/events")) {
+    if (sourceUrl.includes("lu.ma")) {
       pushSource({
         name: result.sourceName,
         type: result.sourceType,
@@ -751,14 +686,14 @@ const mapSearchResultsToScrapeSources = (results: SearchResult[]): ScrapeSourceC
     }
   }
 
-  for (const seedUrl of [...LUMA_SEED_URLS, ...LINKEDIN_EVENT_SEED_URLS]) {
+  for (const seedUrl of LUMA_SEED_URLS) {
     const url = safeUrl(seedUrl);
     if (!url) {
       continue;
     }
     pushSource({
-      name: url.includes("lu.ma") ? "Luma Discovery" : "LinkedIn Events Discovery",
-      type: url.includes("linkedin.com") ? "SOCIAL_MEDIA" : "COMMUNITY",
+      name: "Luma Discovery",
+      type: "COMMUNITY",
       url,
     });
   }
@@ -766,18 +701,202 @@ const mapSearchResultsToScrapeSources = (results: SearchResult[]): ScrapeSourceC
   return sources.slice(0, 25);
 };
 
+// Fetch real upcoming tech conferences from the community-maintained
+// conference-data repository on GitHub (backing confs.tech).
+const collectConfsTechEvents = async (): Promise<SourceSnippet[]> => {
+  interface ConfsItem {
+    name?: string;
+    url?: string;
+    startDate?: string;
+    endDate?: string;
+    city?: string;
+    country?: string;
+    cfpUrl?: string;
+    cfpEndDate?: string;
+  }
+
+  const currentYear = new Date().getFullYear();
+  const years = [currentYear, currentYear + 1];
+
+  const results = await Promise.all(
+    years.map((year) =>
+      fetchJson<ConfsItem[]>(
+        `https://raw.githubusercontent.com/tech-conferences/conference-data/main/conferences/${year}.json`,
+      ),
+    ),
+  );
+
+  const now = new Date();
+  const items = results.flatMap((batch) => (Array.isArray(batch) ? batch : []));
+
+  return dedupeSnippets(
+    items
+      .filter((item) => {
+        if (!item.startDate) return false;
+        const start = new Date(item.startDate);
+        return !Number.isNaN(start.getTime()) && start >= now;
+      })
+      .map((item) => {
+        const cfpNote = item.cfpUrl
+          ? ` CFP deadline: ${item.cfpEndDate ?? "TBA"}. Submit at ${item.cfpUrl}.`
+          : "";
+        return buildSnippet({
+          title: item.name ?? "",
+          summary: `Tech conference.${cfpNote}`,
+          sourceName: "Confs.tech",
+          sourceType: "WEBSITE",
+          sourceUrl: item.url ?? "",
+          registrationUrl: item.url ?? "",
+          startDate: item.startDate,
+          endDate: item.endDate,
+          city: item.city,
+          country: item.country,
+        });
+      })
+      .filter((item): item is SourceSnippet => item !== null),
+  );
+};
+
+// Fetch open hackathons from the Devpost public API.
+const collectDevpostHackathons = async (): Promise<SourceSnippet[]> => {
+  interface DevpostHackathon {
+    title?: string;
+    url?: string;
+    thumbnail_url?: string;
+    submission_period_dates?: string;
+    prize_amount?: string;
+    open_state?: string;
+    displayed_location?: { location?: string };
+    themes?: Array<{ name?: string }>;
+  }
+
+  interface DevpostResponse {
+    hackathons?: DevpostHackathon[];
+  }
+
+  const url = new URL("https://devpost.com/api/hackathons.json");
+  url.searchParams.set("order_by", "deadline");
+  url.searchParams.set("status[]", "open");
+
+  const data = await fetchJson<DevpostResponse>(url.toString());
+  if (!data?.hackathons?.length) {
+    return [];
+  }
+
+  return dedupeSnippets(
+    data.hackathons
+      .map((item) => {
+        const themes = item.themes
+          ?.map((t) => t.name)
+          .filter(Boolean)
+          .join(", ");
+        const prize = item.prize_amount
+          ? `Prize pool: $${item.prize_amount}.`
+          : "";
+        const dates = item.submission_period_dates ?? "";
+        const summary = [dates, prize, themes].filter(Boolean).join(" ");
+
+        return buildSnippet({
+          title: item.title ?? "",
+          summary: summary || "Open hackathon.",
+          sourceName: "Devpost",
+          sourceType: "WEBSITE",
+          sourceUrl: item.url ?? "",
+          registrationUrl: item.url ?? "",
+          city: item.displayed_location?.location ?? "Online",
+          imageUrl: item.thumbnail_url,
+        });
+      })
+      .filter((item): item is SourceSnippet => item !== null),
+  );
+};
+
+// Fetch upcoming events from Google Developer Groups (GDG) community platform.
+const collectGdgCommunityEvents = async (): Promise<SourceSnippet[]> => {
+  interface GdgEvent {
+    id?: number;
+    title?: string;
+    description_short?: string;
+    start_date?: string;
+    end_date?: string;
+    url?: string;
+    picture?: string;
+    chapter?: {
+      title?: string;
+      city?: string;
+      country?: string;
+    };
+  }
+
+  interface GdgResponse {
+    results?: GdgEvent[];
+  }
+
+  const url = new URL("https://gdg.community.dev/api/event/");
+  url.searchParams.set("format", "json");
+  url.searchParams.set(
+    "fields",
+    "id,title,description_short,start_date,end_date,url,picture,chapter",
+  );
+  url.searchParams.set("ordering", "start_date");
+  url.searchParams.set(
+    "start_date__gte",
+    new Date().toISOString().slice(0, 10),
+  );
+  url.searchParams.set("page_size", "50");
+
+  const data = await fetchJson<GdgResponse>(url.toString());
+  if (!data?.results?.length) {
+    return [];
+  }
+
+  return dedupeSnippets(
+    data.results
+      .map((item) =>
+        buildSnippet({
+          title: item.title ?? "",
+          summary: item.description_short ?? "",
+          sourceName: item.chapter?.title
+            ? `GDG ${item.chapter.title}`
+            : "Google Developer Groups",
+          sourceType: "COMMUNITY",
+          sourceUrl: item.url ?? "",
+          registrationUrl: item.url ?? "",
+          startDate: item.start_date,
+          endDate: item.end_date,
+          city: item.chapter?.city,
+          country: item.chapter?.country,
+          imageUrl: item.picture,
+        }),
+      )
+      .filter((item): item is SourceSnippet => item !== null),
+  );
+};
+
 export const collectExternalSourceSnippets = async (): Promise<SourceSnippet[]> => {
-  const [eventbrite, meetup, devto, hashnode, rss, xPosts, serpResults, braveResults] =
-    await Promise.all([
-      collectEventbriteSnippets(),
-      collectMeetupSnippets(),
-      collectDevToSnippets(),
-      collectHashnodeSnippets(),
-      collectRssSnippets(),
-      collectXSnippets(),
-      collectSerpApiResults(),
-      collectBraveResults(),
-    ]);
+  const [
+    eventbrite,
+    devto,
+    hashnode,
+    rss,
+    xPosts,
+    confsTech,
+    devpost,
+    gdg,
+    serpResults,
+    braveResults,
+  ] = await Promise.all([
+    collectEventbriteSnippets(),
+    collectDevToSnippets(),
+    collectHashnodeSnippets(),
+    collectRssSnippets(),
+    collectXSnippets(),
+    collectConfsTechEvents(),
+    collectDevpostHackathons(),
+    collectGdgCommunityEvents(),
+    collectSerpApiResults(),
+    collectBraveResults(),
+  ]);
 
   const searchResults = [...serpResults, ...braveResults];
   const searchSnippets = mapSearchResultsToSnippets(searchResults);
@@ -796,7 +915,9 @@ export const collectExternalSourceSnippets = async (): Promise<SourceSnippet[]> 
 
   return dedupeSnippets([
     ...eventbrite,
-    ...meetup,
+    ...confsTech,
+    ...devpost,
+    ...gdg,
     ...devto,
     ...hashnode,
     ...rss,
