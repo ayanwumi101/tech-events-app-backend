@@ -12,10 +12,7 @@ import { uploadImageToCloudinary } from "../cloudinary.service.js";
 import { EventCandidate } from "../../types/event.js";
 import { collectExternalSourceSnippets } from "./discovery.service.js";
 import { extractEventsFromSnippets } from "./extractor.js";
-import {
-  defaultAiSources,
-  fallbackSourceSnippets,
-} from "./sources.js";
+import { defaultAiSources } from "./sources.js";
 import { scrapeSourcesForSnippets } from "./scraper.js";
 import { validateEventCandidates } from "./validation.service.js";
 
@@ -180,23 +177,7 @@ const buildSnippets = async () => {
 
   const external = await collectExternalSourceSnippets();
   const merged = dedupeSnippets([...external, ...scraped]);
-
-  if (merged.length > 0) {
-    return merged.slice(0, 80);
-  }
-
-  return dbSources.map((source, index) => {
-    const fallback =
-      fallbackSourceSnippets[index % fallbackSourceSnippets.length];
-    return {
-      sourceName: source.name,
-      sourceType: source.type,
-      sourceUrl: source.url,
-      registrationUrl: fallback.registrationUrl,
-      imageUrl: fallback.imageUrl,
-      rawText: fallback.rawText,
-    };
-  });
+  return merged.slice(0, 80);
 };
 
 const createDiscoveryNotifications = async (newEventIds: string[]) => {
