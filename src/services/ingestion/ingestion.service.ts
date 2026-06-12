@@ -76,13 +76,16 @@ const upsertEvent = async (event: EventCandidate): Promise<"created" | "updated"
   const startDate = toSafeDate(event.startDate, now);
   const endDate = toSafeDate(event.endDate, startDate);
 
+  const effectiveImageUrl =
+    event.imageUrl?.trim() || env.EVENT_PLACEHOLDER_IMAGE_URL;
+
   const shouldUploadImage =
-    Boolean(event.imageUrl) &&
-    !event.imageUrl.includes("res.cloudinary.com") &&
-    (!existing?.imageUrl || existing.imageUrl !== event.imageUrl);
+    Boolean(effectiveImageUrl) &&
+    !effectiveImageUrl.includes("res.cloudinary.com") &&
+    (!existing?.imageUrl || existing.imageUrl !== effectiveImageUrl);
   const imageUrl = shouldUploadImage
-    ? await uploadImageToCloudinary(event.imageUrl)
-    : event.imageUrl;
+    ? await uploadImageToCloudinary(effectiveImageUrl)
+    : effectiveImageUrl;
 
   await prisma.event.upsert({
     where: { id: event.id },

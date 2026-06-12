@@ -51,6 +51,45 @@ const LISTING_TITLE_PATTERNS = [
   "technology events",
 ];
 
+// Comprehensive list of African countries (common names and variants).
+const AFRICAN_COUNTRIES = new Set([
+  "nigeria", "kenya", "south africa", "ghana", "ethiopia", "tanzania",
+  "uganda", "rwanda", "senegal", "egypt", "morocco", "tunisia", "algeria",
+  "angola", "mozambique", "zambia", "zimbabwe", "cameroon", "ivory coast",
+  "côte d'ivoire", "cote d'ivoire", "democratic republic of congo", "drc",
+  "congo", "madagascar", "malawi", "botswana", "namibia", "mali",
+  "burkina faso", "niger", "chad", "sudan", "south sudan", "eritrea",
+  "djibouti", "somalia", "liberia", "sierra leone", "guinea", "guinea-bissau",
+  "gambia", "cape verde", "cabo verde", "togo", "benin", "gabon",
+  "equatorial guinea", "central african republic", "sao tome", "comoros",
+  "mauritius", "seychelles", "lesotho", "eswatini", "swaziland", "burundi",
+  "libya", "mauritania",
+]);
+
+// Major African cities and tech hubs.
+const AFRICAN_CITIES = new Set([
+  "lagos", "nairobi", "cape town", "johannesburg", "accra", "kampala",
+  "addis ababa", "kigali", "dar es salaam", "cairo", "casablanca",
+  "abidjan", "dakar", "harare", "luanda", "maputo", "lusaka", "abuja",
+  "port harcourt", "ibadan", "enugu", "benin city", "calabar", "kumasi",
+  "tamale", "mombasa", "kisumu", "arusha", "zanzibar", "jinja", "kano",
+  "kaduna", "tunis", "algiers", "rabat", "fez", "marrakech", "alexandria",
+  "giza", "pretoria", "durban", "soweto", "port elizabeth", "bloemfontein",
+  "douala", "yaounde", "yaoundé", "lome", "lomé", "cotonou", "libreville",
+  "brazzaville", "kinshasa", "antananarivo", "lilongwe", "blantyre",
+  "windhoek", "gaborone", "victoria", "moroni", "banjul", "freetown",
+  "monrovia", "conakry", "bissau", "bamako", "ouagadougou", "niamey",
+  "ndjamena", "n'djamena", "khartoum", "juba", "asmara", "mogadishu",
+  "tripoli", "nouakchott",
+]);
+
+// All recognised Africa-related terms for text-based detection.
+const AFRICA_TERMS = new Set([
+  "africa", "african",
+  ...AFRICAN_COUNTRIES,
+  ...AFRICAN_CITIES,
+]);
+
 const normalizeText = (value: string): string => {
   return value.toLowerCase().replace(/\s+/g, " ").trim();
 };
@@ -131,6 +170,30 @@ const isLikelyListingOrDirectory = (candidate: EventCandidate): boolean => {
   return false;
 };
 
+// Returns true if the event is located in Africa (or is an online event
+// that clearly targets an African audience).
+const isAfricanEvent = (candidate: EventCandidate): boolean => {
+  const country = normalizeText(candidate.country);
+  const city = normalizeText(candidate.city);
+
+  if (AFRICAN_COUNTRIES.has(country)) return true;
+  if (AFRICAN_CITIES.has(city)) return true;
+
+  const combined = normalizeText(
+    `${candidate.title} ${candidate.summary} ${candidate.description} ${candidate.city} ${candidate.country} ${candidate.location}`,
+  );
+
+  // For online/virtual events require an explicit Africa mention in the text.
+  const isOnline =
+    combined.includes("online") ||
+    combined.includes("virtual") ||
+    combined.includes("remote");
+
+  return isOnline
+    ? [...AFRICA_TERMS].some((term) => combined.includes(term))
+    : [...AFRICA_TERMS].some((term) => combined.includes(term));
+};
+
 const normalizeTitle = (value: string): string => {
   return normalizeText(value).replace(/[^a-z0-9 ]+/g, "");
 };
@@ -173,7 +236,16 @@ const passesRuleValidation = (candidate: EventCandidate): boolean => {
     `${candidate.title} ${candidate.summary} ${candidate.description} ${candidate.tags.join(" ")}`,
   );
 
-  return includesAny(combined, TECH_TERMS) && includesAny(combined, EVENT_TERMS);
+  if (!includesAny(combined, TECH_TERMS) || !includesAny(combined, EVENT_TERMS)) {
+    return false;
+  }
+
+  // Only accept events that are in Africa or clearly target an African audience.
+  if (!isAfricanEvent(candidate)) {
+    return false;
+  }
+
+  return true;
 };
 
 const dedupeWithinBatch = (candidates: EventCandidate[]): EventCandidate[] => {
@@ -226,14 +298,15 @@ const validateWithGemini = async (
   for (let index = 0; index < candidates.length; index += chunkSize) {
     const chunk = candidates.slice(index, index + chunkSize);
 
-    const prompt = `You are a strict tech-event validator.
+    const prompt = `You are a strict tech-event validator for an Africa-focused events platform.
 Return ONLY a JSON array and no prose.
-For each event return:
-id,isTechEvent,reliabilityScore,confidence,reason
+For each event return: id, isTechEvent, reliabilityScore, confidence, reason
 Rules:
-1) Keep only real technology-focused events/opportunities.
-2) Reject obvious ads, unrelated blog posts, and ambiguous/non-event content.
-3) reliabilityScore and confidence must be numbers from 0 to 1.
+1) Keep ONLY real technology-focused events physically taking place in an African country,
+   OR online/virtual events run by an Africa-based organization or with a primary African audience.
+2) Reject events located outside Africa unless they are clearly run by an African org for Africans.
+3) Reject obvious ads, unrelated blog posts, and ambiguous/non-event content.
+4) reliabilityScore and confidence must be numbers from 0 to 1.
 Events:
 ${JSON.stringify(
   chunk.map((item) => ({

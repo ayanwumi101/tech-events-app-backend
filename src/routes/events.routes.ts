@@ -84,7 +84,7 @@ export const registerEventRoutes = async (app: FastifyInstance) => {
       prisma.event.count({ where }),
       prisma.event.findMany({
         where,
-        orderBy: [{ startDate: "asc" }],
+        orderBy: [{ ingestedAt: "desc" }, { startDate: "asc" }],
         take: query.take,
         skip,
       }),
