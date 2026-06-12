@@ -64,6 +64,8 @@ const SEARCH_QUERIES = [
   "site:lu.ma (tech OR developer) (event OR meetup OR workshop)",
   "(tech OR software) (event OR meetup OR conference) (eventbrite OR lu.ma OR devpost)",
   "(hackathon OR conference OR summit) (developer OR software OR AI) 2025 OR 2026",
+  "site:linkedin.com/events (tech OR developer OR software OR AI) 2025 OR 2026",
+  "site:facebook.com/events (tech OR hackathon OR conference OR meetup) 2025 OR 2026",
 ];
 
 const safeUrl = (value: string | null | undefined): string | null => {
@@ -596,25 +598,49 @@ const collectBraveResults = async (): Promise<SearchResult[]> => {
     .filter((item): item is SearchResult => item !== null);
 };
 
+// Domains that host real event registration pages.
+// Used to pick the best registrationUrl out of a tweet's entity URLs.
+const EVENT_PLATFORM_DOMAINS = [
+  "eventbrite.com",
+  "lu.ma",
+  "devpost.com",
+  "meetup.com",
+  "hopin.com",
+  "sessionize.com",
+  "papercall.io",
+  "gdg.community.dev",
+  "dev.events",
+];
+
 const collectXSnippets = async (): Promise<SourceSnippet[]> => {
   if (!env.X_API_BEARER_TOKEN) {
     return [];
   }
 
-  interface XSearchResponse {
-    data?: Array<{
-      id: string;
-      text: string;
-      created_at?: string;
-    }>;
+  interface XTweet {
+    id: string;
+    text: string;
+    created_at?: string;
+    entities?: {
+      urls?: Array<{
+        url: string;
+        expanded_url?: string;
+      }>;
+    };
   }
 
+  interface XSearchResponse {
+    data?: XTweet[];
+  }
+
+  // Focused on event-specific language and hashtags.
+  // Operators used here are available on the free API tier.
   const query =
-    "(tech OR developer OR software) (meetup OR conference OR workshop OR hackathon) -is:retweet lang:en";
+    '("tech event" OR "tech conference" OR "developer meetup" OR hackathon OR "call for speakers" OR "call for papers" OR #hackathon OR #devconf OR #techevents OR #devmeetup) -is:retweet lang:en';
   const url = new URL("https://api.twitter.com/2/tweets/search/recent");
   url.searchParams.set("query", query);
   url.searchParams.set("max_results", "30");
-  url.searchParams.set("tweet.fields", "created_at");
+  url.searchParams.set("tweet.fields", "created_at,entities");
 
   const data = await fetchJson<XSearchResponse>(url.toString(), {
     headers: {
@@ -627,17 +653,167 @@ const collectXSnippets = async (): Promise<SourceSnippet[]> => {
 
   return dedupeSnippets(
     data.data
-      .map((tweet) =>
-        buildSnippet({
-          title: `X Event Announcement`,
+      .map((tweet) => {
+        const tweetUrl = `https://x.com/i/web/status/${tweet.id}`;
+        // Prefer a URL that points to an actual event registration page.
+        const eventUrl =
+          tweet.entities?.urls
+            ?.map((u) => u.expanded_url ?? "")
+            .find((u) =>
+              EVENT_PLATFORM_DOMAINS.some((domain) => u.includes(domain)),
+            ) ?? tweetUrl;
+
+        return buildSnippet({
+          title:
+            tweet.text.slice(0, 120).replace(/\n/g, " ").trim() ||
+            "X Tech Event",
           summary: tweet.text,
-          sourceName: "X API",
+          sourceName: "X (Twitter)",
           sourceType: "SOCIAL_MEDIA",
-          sourceUrl: `https://x.com/i/web/status/${tweet.id}`,
-          registrationUrl: `https://x.com/i/web/status/${tweet.id}`,
+          sourceUrl: tweetUrl,
+          registrationUrl: eventUrl,
           startDate: tweet.created_at ?? undefined,
-        }),
-      )
+        });
+      })
+      .filter((item): item is SourceSnippet => item !== null),
+  );
+};
+
+// Reddit's public JSON API lets us search tech subreddits for event posts
+// without any authentication. Multi-subreddit syntax keeps the request count low.
+const collectRedditSnippets = async (): Promise<SourceSnippet[]> => {
+  interface RedditChild {
+    data: {
+      title: string;
+      selftext: string;
+      url: string;
+      permalink: string;
+      created_utc: number;
+      is_self: boolean;
+      subreddit: string;
+    };
+  }
+
+  interface RedditResponse {
+    data?: {
+      children?: RedditChild[];
+    };
+  }
+
+  const subreddits =
+    "cscareerquestions+webdev+MachineLearning+devops+programming+netsec+learnprogramming";
+  const query =
+    "conference OR hackathon OR workshop OR meetup OR \"call for speakers\" OR CFP";
+
+  const url = new URL(
+    `https://www.reddit.com/r/${subreddits}/search.json`,
+  );
+  url.searchParams.set("q", query);
+  url.searchParams.set("sort", "new");
+  url.searchParams.set("restrict_sr", "1");
+  url.searchParams.set("limit", "50");
+  url.searchParams.set("t", "month");
+
+  const data = await fetchJson<RedditResponse>(url.toString(), {
+    headers: {
+      "User-Agent":
+        "EventScoutBot/1.0 (+https://eventscout.app; tech event discovery)",
+    },
+  });
+
+  if (!data?.data?.children?.length) {
+    return [];
+  }
+
+  return dedupeSnippets(
+    data.data.children
+      .map((child) => {
+        const post = child.data;
+        const postUrl = `https://reddit.com${post.permalink}`;
+        // For link posts the url field holds the external link;
+        // for self-posts it loops back to the Reddit thread.
+        const registrationUrl =
+          !post.is_self && post.url && post.url !== postUrl
+            ? post.url
+            : postUrl;
+
+        return buildSnippet({
+          title: post.title,
+          summary: post.selftext.slice(0, 500),
+          sourceName: `Reddit • r/${post.subreddit}`,
+          sourceType: "SOCIAL_MEDIA",
+          sourceUrl: postUrl,
+          registrationUrl,
+          startDate: new Date(post.created_utc * 1000).toISOString(),
+        });
+      })
+      .filter((item): item is SourceSnippet => item !== null),
+  );
+};
+
+// Bluesky has a public search endpoint that requires no authentication.
+// Many developers have moved here from Twitter and actively post about events.
+const collectBlueskySnippets = async (): Promise<SourceSnippet[]> => {
+  interface BlueskyPost {
+    uri: string;
+    record: {
+      text: string;
+      createdAt: string;
+      langs?: string[];
+    };
+    author: {
+      handle: string;
+      displayName?: string;
+    };
+  }
+
+  interface BlueskyResponse {
+    posts?: BlueskyPost[];
+  }
+
+  const queries = [
+    "tech conference hackathon 2025 OR 2026",
+    "developer meetup workshop",
+    "CFP call for proposals tech",
+  ];
+
+  const results = await Promise.all(
+    queries.map((q) => {
+      const url = new URL(
+        "https://public.api.bsky.app/xrpc/app.bsky.feed.searchPosts",
+      );
+      url.searchParams.set("q", q);
+      url.searchParams.set("limit", "20");
+      url.searchParams.set("sort", "latest");
+      url.searchParams.set("lang", "en");
+      return fetchJson<BlueskyResponse>(url.toString());
+    }),
+  );
+
+  const posts = results.flatMap((r) => r?.posts ?? []);
+  if (!posts.length) {
+    return [];
+  }
+
+  return dedupeSnippets(
+    posts
+      .map((post) => {
+        const handle = post.author.handle;
+        const postId = post.uri.split("/").pop() ?? "";
+        const postUrl = `https://bsky.app/profile/${handle}/post/${postId}`;
+
+        return buildSnippet({
+          title:
+            post.record.text.slice(0, 120).replace(/\n/g, " ").trim() ||
+            "Bluesky Tech Event Post",
+          summary: post.record.text,
+          sourceName: `Bluesky • ${post.author.displayName ?? post.author.handle}`,
+          sourceType: "SOCIAL_MEDIA",
+          sourceUrl: postUrl,
+          registrationUrl: postUrl,
+          startDate: post.record.createdAt,
+        });
+      })
       .filter((item): item is SourceSnippet => item !== null),
   );
 };
@@ -677,7 +853,14 @@ const mapSearchResultsToScrapeSources = (results: SearchResult[]): ScrapeSourceC
       continue;
     }
 
-    if (sourceUrl.includes("lu.ma")) {
+    // Attempt to scrape individual LinkedIn and Facebook event pages discovered
+    // via search. Many public event pages return structured JSON-LD data even
+    // without login, which the scraper can extract.
+    if (
+      sourceUrl.includes("lu.ma") ||
+      sourceUrl.includes("linkedin.com/events/") ||
+      sourceUrl.includes("facebook.com/events/")
+    ) {
       pushSource({
         name: result.sourceName,
         type: result.sourceType,
@@ -880,6 +1063,8 @@ export const collectExternalSourceSnippets = async (): Promise<SourceSnippet[]> 
     hashnode,
     rss,
     xPosts,
+    reddit,
+    bluesky,
     confsTech,
     devpost,
     gdg,
@@ -891,6 +1076,8 @@ export const collectExternalSourceSnippets = async (): Promise<SourceSnippet[]> 
     collectHashnodeSnippets(),
     collectRssSnippets(),
     collectXSnippets(),
+    collectRedditSnippets(),
+    collectBlueskySnippets(),
     collectConfsTechEvents(),
     collectDevpostHackathons(),
     collectGdgCommunityEvents(),
@@ -918,10 +1105,12 @@ export const collectExternalSourceSnippets = async (): Promise<SourceSnippet[]> 
     ...confsTech,
     ...devpost,
     ...gdg,
+    ...xPosts,
+    ...reddit,
+    ...bluesky,
     ...devto,
     ...hashnode,
     ...rss,
-    ...xPosts,
     ...searchSnippets,
     ...scrapedFromSearch,
   ]);
