@@ -227,8 +227,9 @@ const passesRuleValidation = (candidate: EventCandidate): boolean => {
     return false;
   }
 
-  const now = Date.now();
-  if (startDate.getTime() < now - 1000 * 60 * 60 * 24 * 3) {
+  // Only ingest events that start on or after January 1, 2026.
+  const INGESTION_CUTOFF = new Date("2026-01-01");
+  if (startDate < INGESTION_CUTOFF) {
     return false;
   }
 

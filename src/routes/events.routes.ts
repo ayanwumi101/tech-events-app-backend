@@ -1,4 +1,4 @@
-import { AttendanceStatus } from "@prisma/client";
+import { AttendanceStatus, EventStatus } from "@prisma/client";
 import { FastifyInstance } from "fastify";
 import { z } from "zod";
 
@@ -13,6 +13,7 @@ import { createNotificationForUser } from "../services/notification.service.js";
 const listQuerySchema = z.object({
   search: z.string().optional(),
   category: z.string().optional(),
+  status: z.enum(["upcoming", "ongoing", "expired", "cancelled"]).optional(),
   city: z.string().optional(),
   take: z.coerce.number().int().min(1).max(100).default(30),
   page: z.coerce.number().int().min(1).default(1),
@@ -44,6 +45,10 @@ export const registerEventRoutes = async (app: FastifyInstance) => {
     const skip = (query.page - 1) * query.take;
     const category = query.category ? parseEventCategory(query.category) : null;
 
+    const statusFilter: EventStatus | null = query.status
+      ? (query.status.toUpperCase() as EventStatus)
+      : null;
+
     const where = {
       ...(query.search
         ? {
@@ -70,6 +75,7 @@ export const registerEventRoutes = async (app: FastifyInstance) => {
           }
         : {}),
       ...(category ? { category } : {}),
+      ...(statusFilter ? { status: statusFilter } : {}),
       ...(query.city
         ? {
             city: {
