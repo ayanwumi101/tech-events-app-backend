@@ -60,13 +60,24 @@ const EVENT_TERMS = [
   "masterclass",
 ];
 
+// All queries are scoped to Africa so search engine results are geographically relevant.
 const SEARCH_QUERIES = [
-  "site:lu.ma (tech OR developer) (event OR meetup OR workshop)",
-  "(tech OR software) (event OR meetup OR conference) (eventbrite OR lu.ma OR devpost)",
-  "(hackathon OR conference OR summit) (developer OR software OR AI) 2025 OR 2026",
-  "site:linkedin.com/events (tech OR developer OR software OR AI) 2025 OR 2026",
-  "site:facebook.com/events (tech OR hackathon OR conference OR meetup) 2025 OR 2026",
+  "tech (meetup OR conference OR hackathon OR workshop) (Africa OR Nigeria OR Kenya OR Ghana OR \"South Africa\" OR Rwanda OR Uganda OR Senegal OR Ethiopia OR Tanzania)",
+  "site:lu.ma (tech OR developer) (Lagos OR Nairobi OR Accra OR \"Cape Town\" OR Kigali OR Abuja OR Kampala OR \"Addis Ababa\" OR Dakar)",
+  "developer (conference OR summit OR bootcamp) (Lagos OR Nairobi OR Accra OR Johannesburg OR Kigali OR Abuja) 2025 OR 2026",
+  "(hackathon OR workshop) Africa (tech OR AI OR software OR developer) 2025 OR 2026",
+  "site:linkedin.com/events (tech OR developer OR software) (Africa OR Nigeria OR Kenya OR Ghana OR \"South Africa\")",
+  "site:facebook.com/events (tech OR hackathon OR conference) (Africa OR Lagos OR Nairobi OR Accra OR \"Cape Town\")",
 ];
+
+// African ISO 3166-1 alpha-2 country codes used to filter API responses.
+const AFRICAN_ISO_CODES = new Set([
+  "NG", "KE", "ZA", "GH", "ET", "TZ", "UG", "RW", "SN", "EG", "MA", "TN",
+  "DZ", "AO", "MZ", "ZM", "ZW", "CM", "CI", "CD", "MG", "MW", "BW", "NA",
+  "ML", "BF", "NE", "TD", "SD", "SS", "ER", "DJ", "SO", "LR", "SL", "GN",
+  "GW", "GM", "CV", "TG", "BJ", "GA", "GQ", "CF", "ST", "KM", "MU", "SC",
+  "LS", "SZ", "BI", "LY", "MR",
+]);
 
 const safeUrl = (value: string | null | undefined): string | null => {
   if (!value) {
@@ -245,10 +256,14 @@ const collectEventbriteSnippets = async (): Promise<SourceSnippet[]> => {
     }>;
   }
 
+  // Restrict to the African continent via Eventbrite's location.address field.
+  // Individual country pages in defaultAiSources supplement this broad query.
   const url = new URL("https://www.eventbriteapi.com/v3/events/search/");
   url.searchParams.set("q", "tech meetup workshop conference hackathon");
   url.searchParams.set("expand", "venue");
   url.searchParams.set("sort_by", "date");
+  url.searchParams.set("location.address", "Africa");
+  url.searchParams.set("location.within", "50000km");
 
   const data = await fetchJson<EventbriteSearchResponse>(url.toString(), {
     headers: {
@@ -277,58 +292,6 @@ const collectEventbriteSnippets = async (): Promise<SourceSnippet[]> => {
           imageUrl: item.logo?.url ?? undefined,
         }),
       )
-      .filter((item): item is SourceSnippet => item !== null),
-  );
-};
-
-// Dev.to publishes event announcements under event-specific tags.
-// Only fetch tags that are explicitly about events, not general tech content.
-const collectDevToSnippets = async (): Promise<SourceSnippet[]> => {
-  interface DevToArticle {
-    title: string;
-    description: string;
-    url: string;
-    social_image?: string | null;
-    published_at?: string;
-    tag_list?: string[] | string;
-    user?: {
-      name?: string;
-    };
-  }
-
-  const tags = ["events", "conference", "hackathon", "meetup"];
-  const batches = await Promise.all(
-    tags.map((tag) =>
-      fetchJson<DevToArticle[]>(
-        `https://dev.to/api/articles?tag=${encodeURIComponent(tag)}&per_page=20`,
-      ),
-    ),
-  );
-
-  const articles = batches.flatMap((batch) => batch ?? []);
-  if (!articles.length) {
-    return [];
-  }
-
-  return dedupeSnippets(
-    articles
-      .map((item) => {
-        const tagText = Array.isArray(item.tag_list)
-          ? item.tag_list.join(", ")
-          : item.tag_list ?? "";
-        return buildSnippet({
-          title: item.title,
-          summary: `${item.description ?? ""} ${tagText}`.trim(),
-          sourceName: item.user?.name
-            ? `Dev.to • ${item.user.name}`
-            : "Dev.to",
-          sourceType: "NEWSLETTER",
-          sourceUrl: item.url,
-          registrationUrl: item.url,
-          startDate: item.published_at,
-          imageUrl: item.social_image ?? undefined,
-        });
-      })
       .filter((item): item is SourceSnippet => item !== null),
   );
 };
@@ -633,10 +596,9 @@ const collectXSnippets = async (): Promise<SourceSnippet[]> => {
     data?: XTweet[];
   }
 
-  // Focused on event-specific language and hashtags.
-  // Operators used here are available on the free API tier.
+  // Focused on Africa-specific event hashtags and geographic keywords.
   const query =
-    '("tech event" OR "tech conference" OR "developer meetup" OR hackathon OR "call for speakers" OR "call for papers" OR #hackathon OR #devconf OR #techevents OR #devmeetup) -is:retweet lang:en';
+    '("tech event" OR "tech conference" OR "developer meetup" OR hackathon OR "call for speakers" OR #AfricaTech OR #techAfrica OR #AfricaHacks OR #devmeetupAfrica OR #hackathon) (Africa OR Nigeria OR Kenya OR Ghana OR "South Africa" OR Rwanda OR Uganda OR Senegal OR Ethiopia) -is:retweet lang:en';
   const url = new URL("https://api.twitter.com/2/tweets/search/recent");
   url.searchParams.set("query", query);
   url.searchParams.set("max_results", "30");
@@ -701,9 +663,9 @@ const collectRedditSnippets = async (): Promise<SourceSnippet[]> => {
   }
 
   const subreddits =
-    "cscareerquestions+webdev+MachineLearning+devops+programming+netsec+learnprogramming";
+    "africa+Nigeria+Kenya+southafrica+ghana+Ethiopia+Rwanda+Uganda+technology";
   const query =
-    "conference OR hackathon OR workshop OR meetup OR \"call for speakers\" OR CFP";
+    "conference OR hackathon OR workshop OR meetup OR \"tech event\" OR CFP Africa";
 
   const url = new URL(
     `https://www.reddit.com/r/${subreddits}/search.json`,
@@ -772,9 +734,9 @@ const collectBlueskySnippets = async (): Promise<SourceSnippet[]> => {
   }
 
   const queries = [
-    "tech conference hackathon 2025 OR 2026",
-    "developer meetup workshop",
-    "CFP call for proposals tech",
+    "tech conference hackathon Africa 2025 OR 2026",
+    "developer meetup Lagos OR Nairobi OR Accra OR \"Cape Town\" OR Kigali OR Abuja OR Kampala",
+    "CFP \"call for proposals\" Africa tech",
   ];
 
   const results = await Promise.all(
@@ -912,12 +874,31 @@ const collectConfsTechEvents = async (): Promise<SourceSnippet[]> => {
   const now = new Date();
   const items = results.flatMap((batch) => (Array.isArray(batch) ? batch : []));
 
+  // Normalise country names to lowercase for comparison against AFRICAN_ISO_CODES
+  // and common country name strings present in the confs.tech data.
+  const AFRICA_COUNTRY_NAMES = new Set([
+    "nigeria", "kenya", "south africa", "ghana", "ethiopia", "tanzania",
+    "uganda", "rwanda", "senegal", "egypt", "morocco", "tunisia", "algeria",
+    "angola", "mozambique", "zambia", "zimbabwe", "cameroon", "ivory coast",
+    "côte d'ivoire", "cote d'ivoire", "democratic republic of congo", "congo",
+    "drc", "madagascar", "malawi", "botswana", "namibia", "mali",
+    "burkina faso", "niger", "chad", "sudan", "south sudan", "eritrea",
+    "djibouti", "somalia", "liberia", "sierra leone", "guinea", "guinea-bissau",
+    "gambia", "cape verde", "cabo verde", "togo", "benin", "gabon",
+    "equatorial guinea", "central african republic", "sao tome", "comoros",
+    "mauritius", "seychelles", "lesotho", "eswatini", "swaziland", "burundi",
+    "libya", "mauritania",
+  ]);
+
   return dedupeSnippets(
     items
       .filter((item) => {
         if (!item.startDate) return false;
         const start = new Date(item.startDate);
-        return !Number.isNaN(start.getTime()) && start >= now;
+        if (Number.isNaN(start.getTime()) || start < now) return false;
+        // Keep only conferences in African countries.
+        const country = (item.country ?? "").toLowerCase().trim();
+        return AFRICA_COUNTRY_NAMES.has(country);
       })
       .map((item) => {
         const cfpNote = item.cfpUrl
@@ -1035,6 +1016,11 @@ const collectGdgCommunityEvents = async (): Promise<SourceSnippet[]> => {
 
   return dedupeSnippets(
     data.results
+      // Keep only GDG chapters based in African countries.
+      .filter((item) => {
+        const country = (item.chapter?.country ?? "").toUpperCase();
+        return AFRICAN_ISO_CODES.has(country);
+      })
       .map((item) =>
         buildSnippet({
           title: item.title ?? "",
@@ -1059,7 +1045,6 @@ const collectGdgCommunityEvents = async (): Promise<SourceSnippet[]> => {
 export const collectExternalSourceSnippets = async (): Promise<SourceSnippet[]> => {
   const [
     eventbrite,
-    devto,
     hashnode,
     rss,
     xPosts,
@@ -1072,7 +1057,6 @@ export const collectExternalSourceSnippets = async (): Promise<SourceSnippet[]> 
     braveResults,
   ] = await Promise.all([
     collectEventbriteSnippets(),
-    collectDevToSnippets(),
     collectHashnodeSnippets(),
     collectRssSnippets(),
     collectXSnippets(),
@@ -1108,7 +1092,6 @@ export const collectExternalSourceSnippets = async (): Promise<SourceSnippet[]> 
     ...xPosts,
     ...reddit,
     ...bluesky,
-    ...devto,
     ...hashnode,
     ...rss,
     ...searchSnippets,

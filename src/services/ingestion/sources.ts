@@ -6,82 +6,79 @@ export interface DefaultAiSource {
   url: string;
 }
 
-// Curated list of reliable tech-event sources used to seed the AiSource table
-// on first run. All URLs must point to actual event listing pages, not blogs or feeds.
+// Curated list of sources with strong African tech event coverage.
+// All URLs point to event listing pages, not blogs.
 export const defaultAiSources: DefaultAiSource[] = [
+  // Eventbrite regional pages for the most active African tech markets
   {
-    name: "Eventbrite Tech Events",
+    name: "Eventbrite Nigeria Tech Events",
     type: "WEBSITE",
-    url: "https://www.eventbrite.com/d/online/technology--events/",
+    url: "https://www.eventbrite.com/d/nigeria/technology--events/",
   },
+  {
+    name: "Eventbrite Kenya Tech Events",
+    type: "WEBSITE",
+    url: "https://www.eventbrite.com/d/kenya/technology--events/",
+  },
+  {
+    name: "Eventbrite South Africa Tech Events",
+    type: "WEBSITE",
+    url: "https://www.eventbrite.com/d/south-africa/technology--events/",
+  },
+  {
+    name: "Eventbrite Ghana Tech Events",
+    type: "WEBSITE",
+    url: "https://www.eventbrite.com/d/ghana/technology--events/",
+  },
+  // Luma has a large and growing community of African tech events
   {
     name: "Luma Discover",
     type: "COMMUNITY",
     url: "https://lu.ma/discover",
   },
+  // Devpost hosts many Africa-accessible online hackathons
   {
     name: "Devpost Hackathons",
     type: "WEBSITE",
     url: "https://devpost.com/hackathons",
   },
-  {
-    name: "Google Developers Events",
-    type: "WEBSITE",
-    url: "https://developers.google.com/events",
-  },
-  {
-    name: "Google Cloud Events",
-    type: "WEBSITE",
-    url: "https://cloud.google.com/events",
-  },
-  {
-    name: "Microsoft Reactor Events",
-    type: "WEBSITE",
-    url: "https://developer.microsoft.com/en-us/reactor/events/",
-  },
-  {
-    name: "CNCF Events",
-    type: "WEBSITE",
-    url: "https://www.cncf.io/events/",
-  },
-  {
-    name: "AWS Events and Webinars",
-    type: "WEBSITE",
-    url: "https://aws.amazon.com/events/",
-  },
-  {
-    name: "InfoQ Events",
-    type: "WEBSITE",
-    url: "https://www.infoq.com/events/",
-  },
-  {
-    name: "Sessionize Upcoming Conferences",
-    type: "WEBSITE",
-    url: "https://sessionize.com/app/speaker/sessions/upcoming",
-  },
-  {
-    name: "Dev Events",
-    type: "WEBSITE",
-    url: "https://dev.events/",
-  },
-  {
-    name: "Papercall Open CFPs",
-    type: "WEBSITE",
-    url: "https://www.papercall.io/cfps",
-  },
-  {
-    name: "MLOps Community Events",
-    type: "COMMUNITY",
-    url: "https://mlops.community/events/",
-  },
+  // Google Developer Groups are very active across Africa
   {
     name: "GDG Community Events",
     type: "COMMUNITY",
     url: "https://gdg.community.dev/events/",
   },
+  // Microsoft Reactor Lagos and Nairobi host regular events
   {
-    name: "Meetup Technology Events",
+    name: "Microsoft Reactor Events",
+    type: "WEBSITE",
+    url: "https://developer.microsoft.com/en-us/reactor/events/",
+  },
+  // Zindi hosts African-focused AI/ML competitions and events
+  {
+    name: "Zindi Africa Events",
     type: "COMMUNITY",
-    url: "https://www.meetup.com/find/?keywords=technology",
+    url: "https://zindi.africa/competitions",
+  },
+  // Meetup for major African tech cities
+  {
+    name: "Meetup Lagos Tech",
+    type: "COMMUNITY",
+    url: "https://www.meetup.com/find/?keywords=tech&location=Lagos%2C+Nigeria",
+  },
+  {
+    name: "Meetup Nairobi Tech",
+    type: "COMMUNITY",
+    url: "https://www.meetup.com/find/?keywords=tech&location=Nairobi%2C+Kenya",
+  },
+  {
+    name: "Meetup Cape Town Tech",
+    type: "COMMUNITY",
+    url: "https://www.meetup.com/find/?keywords=tech&location=Cape+Town%2C+South+Africa",
+  },
+  {
+    name: "Meetup Accra Tech",
+    type: "COMMUNITY",
+    url: "https://www.meetup.com/find/?keywords=tech&location=Accra%2C+Ghana",
   },
 ];

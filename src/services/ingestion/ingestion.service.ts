@@ -1,6 +1,7 @@
 import {
   EventCategory,
   EventSourceType,
+  EventStatus,
   IngestionStatus,
 } from "@prisma/client";
 
@@ -32,6 +33,13 @@ const normalizeCategory = (value: string): EventCategory => {
 
 const normalizeSourceType = (value: string): EventSourceType => {
   return parseSourceType(value) ?? "WEBSITE";
+};
+
+const computeEventStatus = (startDate: Date, endDate: Date): EventStatus => {
+  const now = new Date();
+  if (endDate < now) return "EXPIRED";
+  if (startDate <= now) return "ONGOING";
+  return "UPCOMING";
 };
 
 const toSafeDate = (input: string, fallback: Date): Date => {
@@ -75,14 +83,18 @@ const upsertEvent = async (event: EventCandidate): Promise<"created" | "updated"
   const now = new Date();
   const startDate = toSafeDate(event.startDate, now);
   const endDate = toSafeDate(event.endDate, startDate);
+  const status = computeEventStatus(startDate, endDate);
+
+  const effectiveImageUrl =
+    event.imageUrl?.trim() || env.EVENT_PLACEHOLDER_IMAGE_URL;
 
   const shouldUploadImage =
-    Boolean(event.imageUrl) &&
-    !event.imageUrl.includes("res.cloudinary.com") &&
-    (!existing?.imageUrl || existing.imageUrl !== event.imageUrl);
+    Boolean(effectiveImageUrl) &&
+    !effectiveImageUrl.includes("res.cloudinary.com") &&
+    (!existing?.imageUrl || existing.imageUrl !== effectiveImageUrl);
   const imageUrl = shouldUploadImage
-    ? await uploadImageToCloudinary(event.imageUrl)
-    : event.imageUrl;
+    ? await uploadImageToCloudinary(effectiveImageUrl)
+    : effectiveImageUrl;
 
   await prisma.event.upsert({
     where: { id: event.id },
@@ -92,6 +104,7 @@ const upsertEvent = async (event: EventCandidate): Promise<"created" | "updated"
       summary: event.summary,
       description: event.description,
       category: normalizeCategory(event.category),
+      status,
       sourceType: normalizeSourceType(event.sourceType),
       sourceName: event.sourceName,
       sourceUrl: event.sourceUrl,
@@ -115,6 +128,7 @@ const upsertEvent = async (event: EventCandidate): Promise<"created" | "updated"
       summary: event.summary,
       description: event.description,
       category: normalizeCategory(event.category),
+      status,
       sourceType: normalizeSourceType(event.sourceType),
       sourceName: event.sourceName,
       sourceUrl: event.sourceUrl,
@@ -136,6 +150,36 @@ const upsertEvent = async (event: EventCandidate): Promise<"created" | "updated"
   });
 
   return existing ? "updated" : "created";
+};
+
+// Bulk-update the status of all persisted events based on current time.
+// Called at the end of each ingestion run so statuses stay accurate even between runs.
+const refreshEventStatuses = async (): Promise<void> => {
+  const now = new Date();
+
+  await Promise.all([
+    // Mark events whose end date has passed as EXPIRED (unless manually CANCELLED).
+    prisma.$executeRaw`
+      UPDATE "Event"
+      SET "status" = 'EXPIRED'::"EventStatus", "updatedAt" = ${now}
+      WHERE "endDate" < ${now}
+        AND "status" NOT IN ('CANCELLED'::"EventStatus", 'EXPIRED'::"EventStatus")
+    `,
+    // Mark events currently in-progress as ONGOING.
+    prisma.$executeRaw`
+      UPDATE "Event"
+      SET "status" = 'ONGOING'::"EventStatus", "updatedAt" = ${now}
+      WHERE "startDate" <= ${now} AND "endDate" >= ${now}
+        AND "status" NOT IN ('CANCELLED'::"EventStatus", 'ONGOING'::"EventStatus")
+    `,
+    // Restore UPCOMING for events whose start date is in the future (e.g. re-scheduled).
+    prisma.$executeRaw`
+      UPDATE "Event"
+      SET "status" = 'UPCOMING'::"EventStatus", "updatedAt" = ${now}
+      WHERE "startDate" > ${now}
+        AND "status" NOT IN ('CANCELLED'::"EventStatus", 'UPCOMING'::"EventStatus")
+    `,
+  ]);
 };
 
 const ensureSources = async (): Promise<number> => {
@@ -258,6 +302,7 @@ export const runIngestionScan = async (): Promise<IngestionSummary> => {
       data: { lastFetchedAt: new Date() },
     });
 
+    await refreshEventStatuses();
     await createDiscoveryNotifications(discoveredIds);
 
     const endedAt = new Date();

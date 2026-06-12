@@ -3,6 +3,7 @@ import {
   Event,
   EventCategory,
   EventSourceType,
+  EventStatus,
   Notification,
   ThemeMode,
   User,
@@ -33,6 +34,23 @@ const toSourceType = (
     return "newsletter";
   }
   return "community";
+};
+
+const toEventStatus = (
+  value: EventStatus,
+): "upcoming" | "ongoing" | "expired" | "cancelled" => {
+  switch (value) {
+    case "UPCOMING":
+      return "upcoming";
+    case "ONGOING":
+      return "ongoing";
+    case "EXPIRED":
+      return "expired";
+    case "CANCELLED":
+      return "cancelled";
+    default:
+      return "upcoming";
+  }
 };
 
 const toCategory = (value: EventCategory): string => {
@@ -85,6 +103,7 @@ export const serializeEvent = (
     summary: event.summary,
     description: event.description,
     category: toCategory(event.category),
+    status: toEventStatus(event.status),
     sourceType: toSourceType(event.sourceType),
     sourceName: event.sourceName,
     sourceUrl: event.sourceUrl,

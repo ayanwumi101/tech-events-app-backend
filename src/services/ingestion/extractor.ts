@@ -211,12 +211,13 @@ const normalizeCandidate = (
 };
 
 const buildPrompt = (snippets: SourceSnippet[]): string => {
-  return `You are extracting structured tech event data from snippets.
+  return `You are extracting structured tech event data from snippets for an Africa-focused events platform.
 Return ONLY JSON array and no prose.
 Each item must include:
 id,title,summary,description,category,sourceType,sourceName,sourceUrl,registrationUrl,location,venue,city,country,startDate,endDate,imageUrl,tags,priceLabel,attendeeEstimate,aiConfidence,aiSummary
 Allowed category values: AI,CLOUD,SECURITY,FRONTEND,MOBILE,DATA,DEVOPS,COMMUNITY
 Allowed sourceType values: SOCIAL_MEDIA,WEBSITE,NEWSLETTER,COMMUNITY
+IMPORTANT: Only extract events that are physically taking place in an African country, OR online/virtual events run by an Africa-based organisation with a primary African audience. Set city and country to the African location. If the event is online, set country to the organising body's country if African, otherwise skip it.
 Target opportunities to extract: tech events, meetups, workshops, mentorship sessions, hackathons, bootcamps, community opportunities.
 Snippets:
 ${JSON.stringify(snippets)}`;

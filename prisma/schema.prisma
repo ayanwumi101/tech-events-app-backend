@@ -61,6 +61,7 @@ model Event {
   summary          String
   description      String
   category         EventCategory
+  status           EventStatus     @default(UPCOMING)
   sourceType       EventSourceType
   sourceName       String
   sourceUrl        String
@@ -87,6 +88,7 @@ model Event {
 
   @@index([startDate])
   @@index([category])
+  @@index([status])
 }
 
 model Favorite {
@@ -208,4 +210,11 @@ enum IngestionStatus {
   RUNNING
   COMPLETED
   FAILED
+}
+
+enum EventStatus {
+  UPCOMING
+  ONGOING
+  EXPIRED
+  CANCELLED
 }

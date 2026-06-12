@@ -35,6 +35,12 @@ const envSchema = z.object({
   CLOUDINARY_API_KEY: z.string().optional(),
   CLOUDINARY_API_SECRET: z.string().optional(),
   CLOUDINARY_FOLDER: z.string().default("eventscout/events"),
+  EVENT_PLACEHOLDER_IMAGE_URL: z
+    .string()
+    .url()
+    .default(
+      "https://images.unsplash.com/photo-1591453089343-3fbf5cce2c70?auto=format&fit=crop&w=1200&q=80",
+    ),
   RESEND_API_KEY: z.string().optional(),
   RESEND_FROM_EMAIL: z.string().optional(),
   ALLOWED_ORIGINS: z.string().default("*"),
@@ -74,6 +80,7 @@ const parsed = envSchema.safeParse({
   CLOUDINARY_API_KEY: process.env.CLOUDINARY_API_KEY,
   CLOUDINARY_API_SECRET: process.env.CLOUDINARY_API_SECRET,
   CLOUDINARY_FOLDER: process.env.CLOUDINARY_FOLDER,
+  EVENT_PLACEHOLDER_IMAGE_URL: process.env.EVENT_PLACEHOLDER_IMAGE_URL,
   RESEND_API_KEY: process.env.RESEND_API_KEY,
   RESEND_FROM_EMAIL: process.env.RESEND_FROM_EMAIL,
   ALLOWED_ORIGINS: process.env.ALLOWED_ORIGINS,
