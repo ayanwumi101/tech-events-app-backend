@@ -53,6 +53,7 @@ const TECH_TERMS = [
   "security",
   "startup",
   "open source",
+  "startup",
 ];
 
 const EVENT_TERMS = [
