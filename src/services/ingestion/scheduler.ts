@@ -4,8 +4,7 @@ import { env } from "../../config/env.js";
 import { runIngestionScan } from "./ingestion.service.js";
 
 export const startIngestionScheduler = () => {
-  const interval = Math.max(1, env.INGESTION_INTERVAL_MINUTES);
-  const expression = `*/${interval} * * * *`;
+  const expression = env.INGESTION_CRON_EXPRESSION;
 
   const task = cron.schedule(expression, async () => {
     try {
